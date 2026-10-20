@@ -1,0 +1,1193 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>騒音チェッカー</title>
+<meta name="description" content="スマホのマイクで10秒間の騒音を測り、音の大きさの目安と環境基準・WHOの目安で判定します。">
+<meta name="format-detection" content="telephone=no">
+<meta name="theme-color" content="#F3F5F4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E1311" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231C5B8A'/%3E%3Crect x='7' y='17' width='4' height='8' rx='2' fill='white'/%3E%3Crect x='14' y='11' width='4' height='14' rx='2' fill='white'/%3E%3Crect x='21' y='6' width='4' height='19' rx='2' fill='white'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600&display=swap">
+<style>
+/* Layout: one narrow instrument column — scene switches, the measuring dial, two readouts (平均/最大), a 10-second trace, then the reference notes */
+:root {
+  --bg: #F3F5F4;
+  --surface: #FFFFFF;
+  --track: #E3E8E5;
+  --ink: #141B18;
+  --ink-2: #4B5752;
+  --muted: #5A6661;
+  --line: #D8DFDB;
+  --shadow: rgba(20, 27, 24, 0.12);
+  --shadow-soft: rgba(20, 27, 24, 0.08);
+  --accent: #1C5B8A;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #E1ECF5;
+  /* 音の大きさ4段階(静か/やや静か/うるさい/かなりうるさい) */
+  --q1: #2F8F5B; --q1-bg: #E2F1E8; --q1-ink: #1B6940;
+  --q2: #93A51F; --q2-bg: #EEF2D6; --q2-ink: #53610E;
+  --q3: #E0892E; --q3-bg: #FAEAD7; --q3-ink: #8C4C0B;
+  --q4: #CF453B; --q4-bg: #F8E0DC; --q4-ink: #982920;
+  --ok-bg: #E2F1E8; --ok-ink: #1B6940;
+  --ng-bg: #F8E0DC; --ng-ink: #982920;
+  --font-ui: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Meiryo", system-ui, -apple-system, sans-serif;
+  --font-num: "Barlow Semi Condensed", "DIN Alternate", "Roboto Condensed", "Arial Narrow", system-ui, sans-serif;
+  --r: 14px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0E1311;
+    --surface: #161D1A;
+    --track: #232C28;
+    --ink: #E4EBE7;
+    --ink-2: #B2BEB9;
+    --muted: #8A9791;
+    --line: #2A3430;
+    --shadow: rgba(0, 0, 0, 0.5);
+    --shadow-soft: rgba(0, 0, 0, 0.35);
+    --accent: #74AEDD;
+    --accent-ink: #0A1722;
+    --accent-soft: #16293A;
+    --q1: #4FC48B; --q1-bg: #14301F; --q1-ink: #94E2B9;
+    --q2: #B8CD4F; --q2-bg: #2A3212; --q2-ink: #D6E78F;
+    --q3: #F2A34F; --q3-bg: #3A2812; --q3-ink: #F8C994;
+    --q4: #F2695D; --q4-bg: #3D1A16; --q4-ink: #F8A9A0;
+    --ok-bg: #14301F; --ok-ink: #94E2B9;
+    --ng-bg: #3D1A16; --ng-ink: #F8A9A0;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.6;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  -webkit-tap-highlight-color: transparent;
+}
+[hidden] { display: none !important; }
+button, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.wrap {
+  max-width: 30rem;
+  margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 14px 40px;
+  display: grid;
+  gap: 18px;
+}
+
+/* header */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.top h1 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: 0.04em; display: flex; align-items: baseline; gap: 8px; }
+.top h1 .tag { letter-spacing: 0.06em; }
+.ghost {
+  appearance: none; -webkit-appearance: none;
+  display: inline-flex; align-items: center; gap: 7px;
+  min-height: 36px; padding: 6px 14px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); font-size: 14px; cursor: pointer;
+}
+.ghost .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--q3); }
+.ghost[data-cal="1"] .dot { background: var(--q1); }
+.tag { font-family: var(--font-num); font-weight: 500; font-size: 12.5px; color: var(--muted); letter-spacing: 0.04em; }
+
+/* scene switches */
+.controls { display: grid; grid-template-columns: 1fr auto; gap: 8px 10px; align-items: center; }
+.seg {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  gap: 2px; padding: 3px; border-radius: 12px; background: var(--track);
+}
+.seg button {
+  appearance: none; -webkit-appearance: none;
+  min-height: 40px; padding: 7px 16px;
+  border: 0; border-radius: 9px; background: transparent;
+  font-size: 15px; font-weight: 600; color: var(--ink-2); cursor: pointer;
+}
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px var(--shadow); }
+.hint { grid-column: 1 / -1; margin: 0; font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+
+/* dial */
+.dial-area { display: grid; justify-items: center; gap: 10px; padding-block: 4px; }
+.dial {
+  position: relative;
+  width: min(62vw, 228px); max-width: 100%; aspect-ratio: 1;
+  display: grid; place-items: center;
+  padding: 0; border: 0; border-radius: 50%;
+  background: var(--surface); color: var(--ink);
+  box-shadow: 0 0 0 1px var(--line), 0 10px 28px var(--shadow-soft);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.dial[data-mode="idle"] { background: var(--accent); color: var(--accent-ink); box-shadow: 0 10px 28px var(--shadow); }
+.dial .ring { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.ring-track { fill: none; stroke: var(--track); stroke-width: 5; }
+.dial[data-mode="idle"] .ring-track { stroke: transparent; }
+.ring-prog { fill: none; stroke: var(--accent); stroke-width: 5; stroke-linecap: round; transition: stroke 0.25s ease; }
+.dial[data-cat="q1"] .ring-prog { stroke: var(--q1); }
+.dial[data-cat="q2"] .ring-prog { stroke: var(--q2); }
+.dial[data-cat="q3"] .ring-prog { stroke: var(--q3); }
+.dial[data-cat="q4"] .ring-prog { stroke: var(--q4); }
+.dial-body { position: relative; display: grid; justify-items: center; gap: 4px; }
+.dial-main { font-family: var(--font-num); font-weight: 600; font-size: 64px; line-height: 1; }
+.dial[data-mode="idle"] .dial-main,
+.dial[data-mode="prep"] .dial-main { font-family: var(--font-ui); font-size: 26px; font-weight: 700; letter-spacing: 0.12em; line-height: 1.2; }
+.dial-sub { font-size: 13px; color: var(--muted); }
+.dial[data-mode="idle"] .dial-sub { color: var(--accent-ink); opacity: 0.85; }
+.dial-state { margin: 0; min-height: 1.6em; font-size: 13.5px; color: var(--ink-2); text-align: center; }
+
+/* messages */
+.msg { margin: 0; padding: 10px 12px; border-radius: 12px; font-size: 14px; }
+.msg.error { background: var(--ng-bg); color: var(--ng-ink); }
+.msg.info { background: var(--accent-soft); color: var(--ink); }
+.notice {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px;
+  padding: 10px 12px; border-radius: 12px;
+  background: var(--q3-bg); color: var(--q3-ink); font-size: 13.5px;
+}
+.notice p { margin: 0; min-width: 0; flex: 1 1 14rem; }
+.notice .link { color: var(--q3-ink); font-weight: 700; }
+
+/* results */
+.result { display: grid; gap: 12px; }
+.result-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 10px; }
+.result-head h2 { margin: 0; font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.badge { font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 1px 8px; }
+.meta { margin: 0; font-size: 12.5px; color: var(--muted); }
+.readouts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.readout {
+  min-width: 0;
+  display: grid; align-content: start; gap: 6px;
+  padding: 12px 12px 14px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+}
+.readout h3 { margin: 0; font-size: 14px; font-weight: 700; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; }
+.readout .what { margin: -4px 0 0; font-size: 12px; color: var(--muted); }
+.num { margin: 2px 0 0; display: flex; align-items: baseline; gap: 3px; }
+.num .v { font-family: var(--font-num); font-weight: 600; font-size: 52px; line-height: 1; }
+.num .u { font-family: var(--font-num); font-weight: 500; font-size: 16px; color: var(--ink-2); }
+.pill {
+  justify-self: start; max-width: 100%;
+  margin: 0; padding: 3px 10px 3px 8px;
+  display: inline-flex; align-items: center; gap: 6px;
+  border-radius: 999px; font-size: 13.5px; font-weight: 700; line-height: 1.4;
+}
+.pill::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; }
+.pill.q1 { background: var(--q1-bg); color: var(--q1-ink); } .pill.q1::before { background: var(--q1); }
+.pill.q2 { background: var(--q2-bg); color: var(--q2-ink); } .pill.q2::before { background: var(--q2); }
+.pill.q3 { background: var(--q3-bg); color: var(--q3-ink); } .pill.q3::before { background: var(--q3); }
+.pill.q4 { background: var(--q4-bg); color: var(--q4-ink); } .pill.q4::before { background: var(--q4); }
+.ex { margin: 0; font-size: 12.5px; color: var(--ink-2); }
+.chips { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 6px; }
+.chip { display: flex; flex-wrap: wrap; gap: 0 6px; padding: 6px 8px; border-radius: 8px; font-size: 12px; line-height: 1.45; }
+.chip .st { font-weight: 700; white-space: nowrap; }
+.chip.ok { background: var(--ok-bg); color: var(--ok-ink); }
+.chip.ng { background: var(--ng-bg); color: var(--ng-ink); }
+
+/* 10-second trace */
+.chart {
+  margin: 0; padding: 12px 12px 10px;
+  display: grid; gap: 8px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+}
+.chart figcaption { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; font-size: 13px; font-weight: 700; }
+.chart figcaption span { font-size: 12px; font-weight: 400; color: var(--muted); }
+.chart-box { position: relative; }
+#chart { display: block; width: 100%; height: auto; touch-action: pan-y; }
+#chart .band.q1 { fill: var(--q1-bg); } #chart .edge.q1 { fill: var(--q1); }
+#chart .band.q2 { fill: var(--q2-bg); } #chart .edge.q2 { fill: var(--q2); }
+#chart .band.q3 { fill: var(--q3-bg); } #chart .edge.q3 { fill: var(--q3); }
+#chart .band.q4 { fill: var(--q4-bg); } #chart .edge.q4 { fill: var(--q4); }
+#chart .grid { stroke: var(--surface); stroke-width: 1; }
+#chart .base { stroke: var(--line); stroke-width: 1; }
+#chart .axis { fill: var(--muted); font-family: var(--font-num); font-size: 10px; }
+#chart .series { fill: none; stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+#chart .avg { stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 4 3; }
+#chart .lbl { fill: var(--ink); font-family: var(--font-ui); font-size: 10.5px; font-weight: 700; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+#chart .maxdot, #chart .nowdot, #chart .gdot { fill: var(--ink); stroke: var(--surface); stroke-width: 2; }
+#chart .guide { stroke: var(--ink-2); stroke-width: 1; }
+#chart .guide-g { pointer-events: none; }
+#chart .hit { fill: transparent; cursor: crosshair; }
+.tip {
+  position: absolute; top: -4px; transform: translate(-50%, -100%);
+  padding: 2px 8px; border-radius: 6px;
+  background: var(--ink); color: var(--bg);
+  font-family: var(--font-num); font-size: 13px; white-space: nowrap; pointer-events: none;
+}
+.legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--ink-2); }
+.legend li { display: inline-flex; align-items: center; gap: 5px; }
+.legend .sw { width: 12px; height: 10px; border-radius: 2px; border-left: 3px solid; }
+.legend .sw.q1 { background: var(--q1-bg); border-color: var(--q1); }
+.legend .sw.q2 { background: var(--q2-bg); border-color: var(--q2); }
+.legend .sw.q3 { background: var(--q3-bg); border-color: var(--q3); }
+.legend .sw.q4 { background: var(--q4-bg); border-color: var(--q4); }
+.legend .rng { font-family: var(--font-num); color: var(--muted); }
+
+/* calibration */
+.panel {
+  display: grid; gap: 12px; padding: 14px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+  font-size: 14px;
+}
+.panel h2 { margin: 0; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.status { font-size: 11.5px; font-weight: 700; border-radius: 6px; padding: 1px 8px; }
+.status.ok { background: var(--ok-bg); color: var(--ok-ink); }
+.status.ng { background: var(--q3-bg); color: var(--q3-ink); }
+.steps { margin: 0; padding-left: 1.3em; display: grid; gap: 4px; color: var(--ink-2); font-size: 13.5px; }
+.cal-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; }
+.cal-label { color: var(--ink-2); font-size: 13.5px; }
+.cal-val { font-family: var(--font-num); font-size: 20px; font-weight: 600; }
+.cal-form { display: grid; gap: 6px; }
+.cal-form label { color: var(--ink-2); font-size: 13.5px; }
+.cal-input { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cal-input input {
+  width: 7em; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-num); font-size: 20px; font-weight: 600;
+}
+.cal-input .u { color: var(--ink-2); }
+.btn {
+  appearance: none; -webkit-appearance: none;
+  min-height: 42px; padding: 9px 14px;
+  border: 0; border-radius: 10px;
+  background: var(--accent); color: var(--accent-ink);
+  font-size: 14px; font-weight: 700; cursor: pointer;
+}
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.stepper { display: inline-flex; align-items: center; gap: 6px; }
+.stepper button {
+  width: 42px; height: 42px;
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); font-size: 20px; line-height: 1; cursor: pointer;
+}
+.stepper output { min-width: 6.5em; text-align: center; font-family: var(--font-num); font-size: 20px; font-weight: 600; }
+.cal-msg { margin: 0; font-size: 13.5px; }
+.cal-msg.ok { color: var(--ok-ink); }
+.cal-msg.err { color: var(--ng-ink); }
+.link {
+  appearance: none; -webkit-appearance: none;
+  padding: 0; border: 0; background: none;
+  color: var(--accent); font-size: 13.5px; text-decoration: underline; text-underline-offset: 3px;
+  cursor: pointer; justify-self: start;
+}
+
+/* reference notes */
+.basis { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+.basis summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 12px 14px; list-style: none; cursor: pointer;
+  font-size: 14px; font-weight: 700;
+}
+.basis summary::-webkit-details-marker { display: none; }
+.basis summary::after { content: "＋"; color: var(--muted); font-weight: 400; }
+.basis[open] summary::after { content: "－"; }
+.basis-body { display: grid; gap: 14px; padding: 0 14px 14px; font-size: 13.5px; }
+.basis-body section { display: grid; gap: 6px; min-width: 0; }
+.basis h3 { margin: 0; font-size: 13.5px; }
+.basis p { margin: 0; color: var(--ink-2); }
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 7px 6px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { font-size: 12px; font-weight: 700; color: var(--muted); }
+td small { display: block; font-size: 11.5px; color: var(--muted); }
+.n { text-align: right; white-space: nowrap; font-family: var(--font-num); font-size: 15px; font-variant-numeric: tabular-nums; }
+th.n { font-family: var(--font-ui); font-size: 12px; }
+.notes { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; color: var(--ink-2); }
+.src { font-size: 12px; }
+.src a { color: var(--accent); }
+.foot { margin: 0; font-size: 12px; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ring-prog { transition: none; }
+}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header class="top">
+    <h1>騒音チェッカー<span class="tag">dB(A)</span></h1>
+    <button id="calToggle" class="ghost" type="button" aria-expanded="false" aria-controls="calPanel" data-cal="0"><span class="dot" aria-hidden="true"></span>校正</button>
+  </header>
+
+  <section id="calPanel" class="panel" aria-labelledby="calTitle" hidden>
+    <h2 id="calTitle">校正 <span id="calStatus" class="status ng">未校正</span></h2>
+    <ol class="steps">
+      <li>騒音計アプリなどと並べて置き、同時に10秒計測します。</li>
+      <li>そのアプリが示した平均値(LAeq)を下に入力します。</li>
+    </ol>
+    <div class="cal-row">
+      <span class="cal-label">直前の計測の平均</span>
+      <span id="calLast" class="cal-val">まだ計測していません</span>
+    </div>
+    <form id="calForm" class="cal-form" novalidate>
+      <label for="calRef">騒音計アプリの平均値</label>
+      <div class="cal-input">
+        <input id="calRef" name="calRef" type="text" inputmode="decimal" autocomplete="off" placeholder="例 52.3">
+        <span class="u">dB</span>
+        <button id="calApply" class="btn" type="submit" disabled>この値に合わせる</button>
+      </div>
+    </form>
+    <div class="cal-row">
+      <span class="cal-label">補正値(手動で微調整)</span>
+      <div class="stepper">
+        <button id="calMinus" type="button" aria-label="補正値を0.5下げる">−</button>
+        <output id="calOffset" aria-live="polite">±0.0 dB</output>
+        <button id="calPlus" type="button" aria-label="補正値を0.5上げる">＋</button>
+      </div>
+    </div>
+    <p id="calMsg" class="cal-msg ok" role="status" hidden></p>
+    <button id="calReset" class="link" type="button">補正値を初期値に戻す</button>
+  </section>
+
+  <section class="controls" aria-label="判定する場面">
+    <div class="seg" role="group" aria-label="場所">
+      <button type="button" data-place="out" aria-pressed="true">屋外</button>
+      <button type="button" data-place="in" aria-pressed="false">室内</button>
+    </div>
+    <div class="seg" role="group" aria-label="時間帯">
+      <button type="button" data-period="day" aria-pressed="true">昼</button>
+      <button type="button" data-period="night" aria-pressed="false">夜</button>
+    </div>
+    <p class="hint"><span id="periodHint">時間帯は時刻で自動(昼 6〜22時)</span><button id="periodAuto" class="link" type="button" hidden>時刻に合わせる</button></p>
+  </section>
+
+  <section class="dial-area" aria-label="計測">
+    <button id="startBtn" class="dial" type="button" data-mode="idle" aria-describedby="dialState">
+      <svg class="ring" viewBox="0 0 120 120" aria-hidden="true" focusable="false">
+        <circle class="ring-track" cx="60" cy="60" r="54"></circle>
+        <circle id="ringProg" class="ring-prog" cx="60" cy="60" r="54" stroke-dasharray="0 339.3" transform="rotate(-90 60 60)"></circle>
+      </svg>
+      <span class="dial-body">
+        <span id="dialMain" class="dial-main">計測</span>
+        <span id="dialSub" class="dial-sub">10秒</span>
+      </span>
+    </button>
+    <p id="dialState" class="dial-state" aria-live="polite">押すと10秒間計測します</p>
+  </section>
+
+  <p id="msg" class="msg error" role="alert" hidden></p>
+
+  <div id="calNotice" class="notice">
+    <p>この端末はまだ校正していません。数値は参考値です。騒音計アプリなどと並べて一度校正すると、基準との比較が正確になります。</p>
+    <button id="calNoticeBtn" class="link" type="button">校正する</button>
+  </div>
+
+  <section id="result" class="result" aria-labelledby="resultTitle">
+    <div class="result-head">
+      <h2 id="resultTitle">計測結果<span id="sampleBadge" class="badge">表示例</span></h2>
+      <p id="resultMeta" class="meta"></p>
+    </div>
+    <div id="readouts" class="readouts">
+      <article id="roAvg" class="readout" aria-label="平均">
+        <h3>平均<span class="tag">LAeq,10s</span></h3>
+        <p class="what">ふだんの静けさ</p>
+        <p class="num"><span class="v">--</span><span class="u">dB</span></p>
+        <p class="pill q1">--</p>
+        <p class="ex"></p>
+        <ul class="chips"></ul>
+      </article>
+      <article id="roMax" class="readout" aria-label="最大">
+        <h3>最大<span class="tag">LAFmax</span></h3>
+        <p class="what">通過音・突発音</p>
+        <p class="num"><span class="v">--</span><span class="u">dB</span></p>
+        <p class="pill q1">--</p>
+        <p class="ex"></p>
+        <ul class="chips"></ul>
+      </article>
+    </div>
+    <figure class="chart">
+      <figcaption>10秒間の変化<span>触れるとその時点の値を表示</span></figcaption>
+      <div class="chart-box">
+        <svg id="chart" viewBox="0 0 340 170" role="img" aria-label="10秒間の騒音レベルの変化"></svg>
+        <div id="tip" class="tip" hidden></div>
+      </div>
+      <ul class="legend" aria-label="音の大きさの区分">
+        <li><i class="sw q1" aria-hidden="true"></i>静か<span class="rng">〜49</span></li>
+        <li><i class="sw q2" aria-hidden="true"></i>やや静か<span class="rng">50〜59</span></li>
+        <li><i class="sw q3" aria-hidden="true"></i>うるさい<span class="rng">60〜69</span></li>
+        <li><i class="sw q4" aria-hidden="true"></i>かなりうるさい<span class="rng">70〜</span></li>
+      </ul>
+    </figure>
+  </section>
+
+  <details class="basis">
+    <summary>判定の基準と注意</summary>
+    <div class="basis-body">
+      <section>
+        <h3>音の大きさ(4段階)</h3>
+        <p>板橋区の騒音計貸出資料にある感覚の区分です。静か〜49、やや静か50〜59、うるさい60〜69、かなりうるさい70以上(dB)。例として、40dBは図書館、60dBは普通の会話、80dBは電車の車内くらいです。</p>
+      </section>
+      <section>
+        <h3>基準(平均)</h3>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th scope="col">基準</th><th scope="col" class="n">昼</th><th scope="col" class="n">夜</th></tr></thead>
+            <tbody>
+              <tr><td>住宅地の環境基準<small>屋外。専ら・主として住居用の地域(A・B類型)</small></td><td class="n">55</td><td class="n">45</td></tr>
+              <tr><td>道路沿いの環境基準<small>屋外。A地域で2車線以上の道路に面する場合(B・C地域は昼65・夜60)</small></td><td class="n">60</td><td class="n">55</td></tr>
+              <tr><td>WHOの目安(1999年)<small>室内。昼は住居内、夜は寝室</small></td><td class="n">35</td><td class="n">30</td></tr>
+              <tr><td>環境基準(屋内)<small>室内。幹線道路の近くで窓を閉めて暮らす住居</small></td><td class="n">45</td><td class="n">40</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section>
+        <h3>基準(最大)</h3>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th scope="col">基準</th><th scope="col" class="n">昼</th><th scope="col" class="n">夜</th></tr></thead>
+            <tbody>
+              <tr><td>新幹線の環境基準<small>屋外。住居系の地域(商工業系は75)</small></td><td class="n">70</td><td class="n">—</td></tr>
+              <tr><td>WHO 夜間屋外の目安<small>屋外。窓を開けて眠れる水準</small></td><td class="n">—</td><td class="n">60</td></tr>
+              <tr><td>WHO 寝室の突発音<small>室内。睡眠を妨げない水準</small></td><td class="n">45</td><td class="n">45</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section>
+        <h3>計測と判定について</h3>
+        <ul class="notes">
+          <li>昼は6〜22時、夜は22〜6時です(環境基準の時間区分)。</li>
+          <li>公的基準は昼・夜など長い時間の平均で評価します。10秒の計測は、その時点の目安です。</li>
+          <li>ふだんの静けさは車や電車が通らない10秒で、通過音は接近に合わせて計測を始めてください。</li>
+          <li>平均はA特性の等価騒音レベル、最大はA特性・時間重み付けF(速い)の最大値です。</li>
+          <li>スマホのマイクは40dB未満を高めに測る傾向があります。静かな室内では高めに出ることがあります。</li>
+          <li>未校正の数値は参考値です。端末ごとに一度、騒音計アプリなどと並べて校正してください。</li>
+        </ul>
+      </section>
+      <p class="src">出典: <a href="https://www.env.go.jp/hourei/07/000038.html" target="_blank" rel="noopener">環境省「騒音に係る環境基準について」</a>、新幹線鉄道騒音に係る環境基準、WHO「Guidelines for Community Noise」(1999年)、板橋区 騒音計貸出資料、市町村が示す騒音の目安</p>
+    </div>
+  </details>
+
+  <p class="foot">計測した音はこの端末の中だけで処理し、録音や送信はしません。補正値だけをこのブラウザに保存します。</p>
+</main>
+
+<script>
+'use strict';
+/* CORE:BEGIN — 計測と判定のロジック(画面に依存しない) */
+class LevelMeter {
+  constructor(fs, opts) {
+    const o = opts || {};
+    const warm = o.warmup === undefined ? 0.5 : o.warmup;
+    const dur = o.duration === undefined ? 10 : o.duration;
+    const tick = o.tick === undefined ? 0.1 : o.tick;
+    this.fs = fs;
+    this.warmupLeft = Math.round(warm * fs);
+    this.total = Math.round(dur * fs);
+    this.left = this.total;
+    this.tickLen = Math.max(1, Math.round(tick * fs));
+    this.tickCount = 0;
+    this.tickMax = 0;
+    this.alpha = Math.exp(-1 / (0.125 * fs)); // 時間重み付けF(125ms)
+    this.e = 0;
+    this.sum = 0;
+    this.n = 0;
+    this.maxE = 0;
+    this.started = false;
+    this.done = false;
+    this.ticks = [];
+    this.sec = LevelMeter.design(fs);
+    this.gain = 1 / LevelMeter.response(this.sec, 1000, fs);
+  }
+  // A特性フィルタ: IEC 61672の極周波数を、プリワープ付き双一次変換で1次セクションの縦続にしたもの
+  static design(fs) {
+    const poles = [[20.598997, 1], [20.598997, 1], [107.65265, 1], [737.86223, 1], [12194.217, 0], [12194.217, 0]];
+    const c = 2 * fs;
+    return poles.map(([fp, isHp]) => {
+      const w = c * Math.tan(Math.PI * fp / fs);
+      const d = c + w;
+      return isHp
+        ? { b0: c / d, b1: -c / d, a1: (w - c) / d, x1: 0, y1: 0 }
+        : { b0: w / d, b1: w / d, a1: (w - c) / d, x1: 0, y1: 0 };
+    });
+  }
+  static response(sec, freq, fs) {
+    const w = 2 * Math.PI * freq / fs;
+    const cr = Math.cos(w), ci = -Math.sin(w);
+    let mag = 1;
+    for (let k = 0; k < sec.length; k++) {
+      const s = sec[k];
+      mag *= Math.hypot(s.b0 + s.b1 * cr, s.b1 * ci) / Math.hypot(1 + s.a1 * cr, s.a1 * ci);
+    }
+    return mag;
+  }
+  process(buf) {
+    if (this.done) return;
+    const sec = this.sec, g = this.gain, a = this.alpha, b = 1 - a;
+    for (let i = 0; i < buf.length; i++) {
+      let x = buf[i];
+      if (!this.started) {
+        if (x === 0) continue; // マイクが動き出すまでの無音は数えない
+        this.started = true;
+      }
+      for (let k = 0; k < sec.length; k++) {
+        const s = sec[k];
+        const y = s.b0 * x + s.b1 * s.x1 - s.a1 * s.y1;
+        s.x1 = x; s.y1 = y; x = y;
+      }
+      x *= g;
+      const p = x * x;
+      this.e = a * this.e + b * p;
+      if (this.warmupLeft > 0) { this.warmupLeft--; continue; }
+      this.sum += p;
+      this.n++;
+      this.left--;
+      if (this.e > this.maxE) this.maxE = this.e;
+      if (this.e > this.tickMax) this.tickMax = this.e;
+      if (++this.tickCount >= this.tickLen) { this.ticks.push(this.tickMax); this.tickCount = 0; this.tickMax = 0; }
+      if (this.left <= 0) {
+        if (this.tickCount > 0) { this.ticks.push(this.tickMax); this.tickCount = 0; }
+        this.done = true;
+        return;
+      }
+    }
+  }
+}
+
+function toDb(meanSquare) { return 10 * Math.log10(Math.max(meanSquare, 1e-13)); }
+
+function energyMean(dbs) {
+  if (!dbs.length) return -Infinity;
+  let s = 0;
+  for (let i = 0; i < dbs.length; i++) s += Math.pow(10, dbs[i] / 10);
+  return 10 * Math.log10(s / dbs.length);
+}
+
+// 音の大きさ4段階(板橋区 騒音計貸出資料の区分)
+const BANDS = [
+  { key: 'q1', label: '静か', max: 49 },
+  { key: 'q2', label: 'やや静か', max: 59 },
+  { key: 'q3', label: 'うるさい', max: 69 },
+  { key: 'q4', label: 'かなりうるさい', max: Infinity }
+];
+function category(db) {
+  const v = Math.round(db);
+  for (let i = 0; i < BANDS.length; i++) if (v <= BANDS[i].max) return BANDS[i];
+  return BANDS[BANDS.length - 1];
+}
+
+// 身近な音の例(市町村が示す騒音の目安。10dB刻み)
+const EXAMPLES = {
+  20: '木の葉のふれ合う音',
+  30: 'ささやき声・郊外の深夜',
+  40: '図書館・静かな住宅地の昼',
+  50: '静かな事務所',
+  60: '普通の会話',
+  70: '騒々しい街頭や事務所',
+  80: '電車の車内',
+  90: '騒々しい工場の中',
+  100: '電車が通るときのガード下',
+  110: '車の警笛(前方2m)',
+  120: '飛行機のエンジンの近く'
+};
+function example(db) {
+  const d = Math.min(120, Math.max(20, Math.round(Math.round(db) / 10) * 10));
+  return EXAMPLES[d];
+}
+
+// 昼=6〜22時、夜=22〜6時(環境基準の時間区分)
+function periodAt(date) {
+  const h = date.getHours();
+  return h >= 6 && h < 22 ? 'day' : 'night';
+}
+
+// 場面ごとの基準(dB)。平均はLAeq、最大はLAFmaxと比べる
+const STANDARDS = {
+  out: {
+    day: { avg: [['住宅地の環境基準', 55], ['道路沿いの環境基準', 60]], max: [['新幹線の環境基準', 70]] },
+    night: { avg: [['住宅地の環境基準', 45], ['道路沿いの環境基準', 55]], max: [['WHO 夜間屋外の目安', 60]] }
+  },
+  in: {
+    day: { avg: [['WHO 住居内の目安', 35], ['環境基準(屋内)', 45]], max: [['WHO 寝室の突発音', 45]] },
+    night: { avg: [['WHO 寝室の目安', 30], ['環境基準(屋内)', 40]], max: [['WHO 寝室の突発音', 45]] }
+  }
+};
+function checks(place, period, kind, db) {
+  const v = Math.round(db);
+  return STANDARDS[place][period][kind].map(function (r) { return { name: r[0], limit: r[1], ok: v <= r[1] }; });
+}
+/* CORE:END */
+
+(function () {
+  const $ = function (id) { return document.getElementById(id); };
+  const STORE_KEY = 'noise-checker:v1';
+  const BASE_OFFSET = 110;   // 未校正時の換算値(dBFS→dB)。端末差が大きいため校正で補正する
+  const DURATION = 10, WARMUP = 0.5, TICK = 0.1;
+  const RING_C = 2 * Math.PI * 54;
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const CH = { W: 340, H: 170, L: 28, R: 8, T: 12, B: 20 };
+  const reducedMotion = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  const clamp = function (v, lo, hi) { return Math.min(hi, Math.max(lo, v)); };
+  const pad2 = function (n) { return (n < 10 ? '0' : '') + n; };
+  const fmtSigned = function (v) { return (v > 0 ? '+' : v < 0 ? '−' : '±') + Math.abs(v).toFixed(1); };
+  const fmtTime = function (d) { return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()); };
+
+  const state = {
+    place: 'out',
+    period: periodAt(new Date()),
+    periodManual: false,
+    userOffset: 0,
+    calibrated: false,
+    running: false,
+    last: null
+  };
+  let session = null;
+  let startToken = 0;
+  let chartState = null;
+
+  // 表示例(初回だけ。車が1台通った屋外の想定)
+  const SAMPLE = (function () {
+    const series = [];
+    for (let i = 0; i < 100; i++) {
+      const t = (i + 1) / 10;
+      const base = 51 + 1.3 * Math.sin(i * 0.9) + 0.8 * Math.sin(i * 2.3 + 1);
+      const car = 17 * Math.exp(-Math.pow(t - 6.4, 2) / (2 * 0.7 * 0.7));
+      series.push(base + car);
+    }
+    return { series: series, avg: energyMean(series), max: Math.max.apply(null, series) };
+  })();
+
+  /* ---------- 保存(補正値のみ) ---------- */
+  function loadSettings() {
+    try {
+      const raw = window.localStorage.getItem(STORE_KEY);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (s && typeof s.userOffset === 'number' && isFinite(s.userOffset)) state.userOffset = clamp(s.userOffset, -60, 60);
+      if (s && typeof s.calibrated === 'boolean') state.calibrated = s.calibrated;
+    } catch (e) { /* 保存領域が使えない環境では既定値で動かす */ }
+  }
+  function saveSettings() {
+    try { window.localStorage.setItem(STORE_KEY, JSON.stringify({ userOffset: state.userOffset, calibrated: state.calibrated })); } catch (e) { /* 無視 */ }
+  }
+  function offset() { return BASE_OFFSET + state.userOffset; }
+
+  /* ---------- 場面の切替 ---------- */
+  function syncToggles() {
+    document.querySelectorAll('[data-place]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.place === state.place)); });
+    document.querySelectorAll('[data-period]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.period === state.period)); });
+    $('periodHint').textContent = state.periodManual ? '時間帯を手動で選んでいます' : '時間帯は時刻で自動(昼 6〜22時)';
+    $('periodAuto').hidden = !state.periodManual;
+  }
+  document.querySelectorAll('[data-place]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      state.place = b.dataset.place;
+      syncToggles();
+      if (!state.running) renderResult(false);
+    });
+  });
+  document.querySelectorAll('[data-period]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      state.period = b.dataset.period;
+      state.periodManual = true;
+      syncToggles();
+      if (!state.running) renderResult(false);
+    });
+  });
+  $('periodAuto').addEventListener('click', function () {
+    state.periodManual = false;
+    state.period = periodAt(new Date());
+    syncToggles();
+    if (!state.running) renderResult(false);
+  });
+
+  /* ---------- 計測ボタン ---------- */
+  function setDial(mode, db, progress) {
+    const btn = $('startBtn');
+    btn.dataset.mode = mode;
+    let main, sub, note;
+    if (mode === 'idle') {
+      main = state.last ? 'もう一度' : '計測';
+      sub = '10秒';
+      note = state.last ? '押すと、もう一度10秒間計測します' : '押すと10秒間計測します';
+    } else if (mode === 'prep') {
+      main = '準備中';
+      sub = 'マイク';
+      note = 'マイクの使用を求められたら「許可」を選んでください';
+    } else {
+      main = db == null ? '--' : String(Math.round(db));
+      sub = mode === 'warmup' ? 'dB · まもなく開始' : 'dB · 残り ' + Math.max(1, Math.ceil(DURATION * (1 - progress) - 1e-9)) + '秒';
+      note = '計測中です。押すと中止します';
+    }
+    $('dialMain').textContent = main;
+    $('dialSub').textContent = sub;
+    if ($('dialState').textContent !== note) $('dialState').textContent = note;
+    const p = mode === 'measure' ? clamp(progress || 0, 0, 1) : 0;
+    $('ringProg').setAttribute('stroke-dasharray', (p * RING_C).toFixed(1) + ' ' + RING_C.toFixed(1));
+    btn.dataset.cat = (mode === 'measure' || mode === 'warmup') && db != null ? category(db).key : '';
+    btn.setAttribute('aria-label', mode === 'idle' ? '10秒間計測する' : mode === 'prep' ? '準備中。押すと中止します' : '計測を中止する');
+  }
+
+  function showMsg(text, kind) {
+    const m = $('msg');
+    m.textContent = text;
+    m.className = 'msg ' + (kind || 'error');
+    m.hidden = false;
+  }
+  function hideMsg() { $('msg').hidden = true; }
+
+  function micErrorMessage(err) {
+    const n = err && err.name;
+    if (n === 'NotAllowedError' || n === 'SecurityError' || n === 'PermissionDeniedError') {
+      return 'マイクの使用が許可されていません。ブラウザの設定でこのサイトのマイクを「許可」にしてから、もう一度押してください。';
+    }
+    if (n === 'NotFoundError' || n === 'DevicesNotFoundError' || n === 'OverconstrainedError') return 'マイクが見つかりませんでした。';
+    if (n === 'NotReadableError' || n === 'TrackStartError' || n === 'AbortError') {
+      return 'マイクを使えませんでした。通話や録音のアプリを閉じてから、もう一度お試しください。';
+    }
+    return 'マイクを開始できませんでした。ページを再読み込みしてお試しください。';
+  }
+
+  function safeResume(ctx) {
+    try {
+      const p = ctx.resume && ctx.resume();
+      return p && p.catch ? p.catch(function () {}) : Promise.resolve();
+    } catch (e) { return Promise.resolve(); }
+  }
+  function closeCtx(ctx) {
+    try { const p = ctx.close && ctx.close(); if (p && p.catch) p.catch(function () {}); } catch (e) { /* 無視 */ }
+  }
+  function stopTracks(stream) {
+    try { stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) { /* 無視 */ }
+  }
+
+  const WORKLET_SRC = [
+    'class NoiseMeterProcessor extends AudioWorkletProcessor {',
+    '  constructor(options) { super(); this.m = new LevelMeter(sampleRate, options.processorOptions); this.sent = 0; this.frames = 0; }',
+    '  process(inputs) {',
+    '    const m = this.m; const ch = inputs[0] && inputs[0][0];',
+    '    if (ch) m.process(ch);',
+    '    this.frames += 128;',
+    '    if (m.ticks.length > this.sent || m.done || this.frames >= 2048) {',
+    '      this.frames = 0;',
+    '      this.port.postMessage({ started: m.started, warmupLeft: m.warmupLeft, n: m.n, total: m.total, e: m.e, sum: m.sum, maxE: m.maxE, done: m.done, ticks: m.ticks.slice(this.sent) });',
+    '      this.sent = m.ticks.length;',
+    '    }',
+    '    return !m.done;',
+    '  }',
+    '}',
+    "registerProcessor('noise-meter', NoiseMeterProcessor);"
+  ].join('\n');
+
+  async function createMeterNode(ctx, opts) {
+    if (typeof ctx.createScriptProcessor === 'function') {
+      const meter = new LevelMeter(ctx.sampleRate, opts);
+      const node = ctx.createScriptProcessor(2048, 1, 1);
+      node.onaudioprocess = function (ev) {
+        meter.process(ev.inputBuffer.getChannelData(0));
+        const out = ev.outputBuffer && ev.outputBuffer.getChannelData(0);
+        if (out && out.fill) out.fill(0);
+      };
+      return { node: node, read: function () { return meter; } };
+    }
+    if (!ctx.audioWorklet || typeof AudioWorkletNode === 'undefined') throw new Error('no-processor');
+    const url = URL.createObjectURL(new Blob([LevelMeter.toString() + '\n' + WORKLET_SRC], { type: 'text/javascript' }));
+    try { await ctx.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
+    const node = new AudioWorkletNode(ctx, 'noise-meter', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1], processorOptions: opts });
+    const mirror = { started: false, warmupLeft: 1, n: 0, total: Math.round(opts.duration * ctx.sampleRate), e: 0, sum: 0, maxE: 0, done: false, ticks: [] };
+    node.port.onmessage = function (ev) {
+      const d = ev.data;
+      mirror.started = d.started; mirror.warmupLeft = d.warmupLeft; mirror.n = d.n; mirror.total = d.total;
+      mirror.e = d.e; mirror.sum = d.sum; mirror.maxE = d.maxE; mirror.done = d.done;
+      for (let i = 0; i < d.ticks.length; i++) mirror.ticks.push(d.ticks[i]);
+    };
+    return { node: node, read: function () { return mirror; } };
+  }
+
+  function phaseOf(m) {
+    if (m.done) return 'done';
+    if (!m.started) return 'wait';
+    if (m.warmupLeft > 0) return 'warmup';
+    return 'measure';
+  }
+
+  async function start() {
+    hideMsg();
+    if (!state.periodManual) { state.period = periodAt(new Date()); syncToggles(); }
+    if (!window.isSecureContext) { showMsg('マイクを使うには、https:// で始まるURLでこのページを開いてください。'); return; }
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showMsg('このブラウザではマイクを使えません。SafariやChromeの最新版で開いてください。');
+      return;
+    }
+    const token = ++startToken;
+    state.running = true;
+    setDial('prep');
+    let ctx;
+    try { ctx = new AC(); } catch (e) { endWithError('音声の処理を開始できませんでした。ページを再読み込みしてください。'); return; }
+    const resuming = safeResume(ctx); // ボタン操作の中で再開しておく(iOS対策)
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 },
+        video: false
+      });
+    } catch (err) {
+      closeCtx(ctx);
+      if (token === startToken) endWithError(micErrorMessage(err));
+      return;
+    }
+    if (token !== startToken || !state.running) { stopTracks(stream); closeCtx(ctx); return; }
+    await resuming;
+    if (ctx.state !== 'running') await safeResume(ctx);
+    if (token !== startToken || !state.running) { stopTracks(stream); closeCtx(ctx); return; }
+    let src, made;
+    try {
+      src = ctx.createMediaStreamSource(stream);
+      made = await createMeterNode(ctx, { warmup: WARMUP, duration: DURATION, tick: TICK });
+    } catch (e) {
+      stopTracks(stream); closeCtx(ctx);
+      if (token === startToken) endWithError('音声の処理を開始できませんでした。ブラウザを最新にしてお試しください。');
+      return;
+    }
+    if (token !== startToken || !state.running) { stopTracks(stream); closeCtx(ctx); return; }
+    const mute = ctx.createGain();
+    mute.gain.value = 0;
+    src.connect(made.node);
+    made.node.connect(mute);
+    mute.connect(ctx.destination);
+    session = { ctx: ctx, stream: stream, src: src, node: made.node, mute: mute, read: made.read, t0: performance.now(), at: new Date(), drawn: -1, raf: 0 };
+    session.raf = requestAnimationFrame(loop);
+  }
+
+  function loop() {
+    const s = session;
+    if (!s) return;
+    const m = s.read();
+    const ph = phaseOf(m);
+    const elapsed = (performance.now() - s.t0) / 1000;
+    if (ph === 'done') { finish(); return; }
+    if (ph === 'wait' && elapsed > 5) {
+      abort('マイクから音を取得できませんでした。ほかのアプリがマイクを使っていないか確認して、もう一度お試しください。');
+      return;
+    }
+    if (elapsed > DURATION + 15) { abort('計測を完了できませんでした。もう一度お試しください。'); return; }
+    const off = offset();
+    const live = m.started ? toDb(m.e) + off : null;
+    if (ph === 'wait') setDial('prep');
+    else setDial(ph, live, m.n / m.total);
+    if (ph === 'measure' && m.ticks.length !== s.drawn) {
+      if (s.drawn < 0) showLiveLayout();
+      s.drawn = m.ticks.length;
+      drawChart(m.ticks.map(function (e) { return toDb(e) + off; }), null, null, true);
+    }
+    s.raf = requestAnimationFrame(loop);
+  }
+
+  function showLiveLayout() {
+    hideTip();
+    $('result').hidden = false;
+    $('readouts').hidden = true;
+    $('sampleBadge').hidden = true;
+    $('resultMeta').textContent = '計測中…';
+  }
+
+  function finish() {
+    const s = session;
+    const m = s.read();
+    const last = {
+      leqFS: toDb(m.sum / Math.max(1, m.n)),
+      maxFS: toDb(m.maxE),
+      seriesFS: m.ticks.map(toDb),
+      at: s.at
+    };
+    teardown();
+    state.last = last;
+    state.running = false;
+    setDial('idle');
+    renderResult(true);
+    try { if (navigator.vibrate) navigator.vibrate(40); } catch (e) { /* 非対応 */ }
+  }
+
+  function teardown() {
+    const s = session;
+    session = null;
+    if (!s) return;
+    cancelAnimationFrame(s.raf);
+    try { s.src.disconnect(); } catch (e) { /* 無視 */ }
+    try { s.node.disconnect(); } catch (e) { /* 無視 */ }
+    try { s.mute.disconnect(); } catch (e) { /* 無視 */ }
+    try { if (s.node.port) s.node.port.onmessage = null; else s.node.onaudioprocess = null; } catch (e) { /* 無視 */ }
+    stopTracks(s.stream);
+    closeCtx(s.ctx);
+  }
+
+  function abort(msg, kind) {
+    teardown();
+    startToken++;
+    state.running = false;
+    setDial('idle');
+    renderResult(false);
+    if (msg) showMsg(msg, kind);
+  }
+
+  function endWithError(msg) {
+    state.running = false;
+    setDial('idle');
+    showMsg(msg);
+  }
+
+  $('startBtn').addEventListener('click', function () {
+    if (state.running) abort('計測を中止しました。', 'info');
+    else start();
+  });
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) {
+      if (state.running) abort('画面を切り替えたため、計測を中止しました。', 'info');
+    } else if (!state.periodManual) {
+      const p = periodAt(new Date());
+      if (p !== state.period) {
+        state.period = p;
+        syncToggles();
+        if (!state.running) renderResult(false);
+      }
+    }
+  });
+
+  /* ---------- 結果 ---------- */
+  function fillReadout(el, db, list) {
+    const v = Math.round(db);
+    const cat = category(v);
+    el.querySelector('.v').textContent = String(v);
+    const pill = el.querySelector('.pill');
+    pill.className = 'pill ' + cat.key;
+    pill.textContent = cat.label;
+    el.querySelector('.ex').textContent = '≒ ' + example(v);
+    const ul = el.querySelector('.chips');
+    ul.textContent = '';
+    list.forEach(function (c) {
+      const li = document.createElement('li');
+      li.className = 'chip ' + (c.ok ? 'ok' : 'ng');
+      const st = document.createElement('span');
+      st.className = 'st';
+      st.textContent = c.ok ? '✓ 基準内' : '✕ 超過';
+      const nm = document.createElement('span');
+      nm.className = 'nm';
+      nm.textContent = c.name + ' ' + c.limit;
+      li.append(st, ' ', nm);
+      ul.append(li);
+    });
+  }
+
+  function sceneLabel() {
+    return (state.place === 'out' ? '屋外' : '室内') + '・' + (state.period === 'day' ? '昼' : '夜');
+  }
+
+  function renderResult(announce) {
+    const real = !!state.last;
+    const off = offset();
+    let series, avg, max;
+    if (real) {
+      series = state.last.seriesFS.map(function (v) { return v + off; });
+      avg = state.last.leqFS + off;
+      max = state.last.maxFS + off;
+    } else {
+      series = SAMPLE.series;
+      avg = SAMPLE.avg;
+      max = SAMPLE.max;
+    }
+    hideTip();
+    $('result').hidden = false;
+    $('readouts').hidden = false;
+    $('sampleBadge').hidden = real;
+    $('resultMeta').textContent = real
+      ? sceneLabel() + 'として判定 · ' + fmtTime(state.last.at) + ' 計測'
+      : sceneLabel() + 'として判定した表示例です';
+    fillReadout($('roAvg'), avg, checks(state.place, state.period, 'avg', avg));
+    fillReadout($('roMax'), max, checks(state.place, state.period, 'max', max));
+    drawChart(series, avg, max, false);
+    $('calNotice').hidden = state.calibrated;
+    if (announce) {
+      $('dialState').textContent = '計測が終わりました。平均' + Math.round(avg) + 'dB(' + category(avg).label + ')、最大' + Math.round(max) + 'dB(' + category(max).label + ')';
+    }
+    updateCalPanel();
+  }
+
+  /* ---------- 10秒間のグラフ ---------- */
+  function svgEl(tag, attrs, text) {
+    const e = document.createElementNS(SVGNS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function drawChart(series, avg, max, live) {
+    const svg = $('chart');
+    const W = CH.W, H = CH.H, L = CH.L, R = CH.R, T = CH.T, B = CH.B;
+    const pw = W - L - R, ph = H - T - B;
+    let lo = 30, hi = 90;
+    for (let i = 0; i < series.length; i++) {
+      const v = series[i];
+      if (v - 5 < lo) lo = Math.floor((v - 5) / 10) * 10;
+      if (v + 5 > hi) hi = Math.ceil((v + 5) / 10) * 10;
+    }
+    lo = clamp(lo, 0, 30);
+    hi = clamp(hi, 90, 140);
+    const y = function (v) { return T + ph * (1 - (clamp(v, lo, hi) - lo) / (hi - lo)); };
+    const x = function (i) { return L + pw * ((i + 1) / 100); };
+    svg.textContent = '';
+    [['q1', lo, 50], ['q2', 50, 60], ['q3', 60, 70], ['q4', 70, hi]].forEach(function (b) {
+      const top = y(b[2]), bot = y(b[1]);
+      if (bot - top <= 0) return;
+      svg.append(svgEl('rect', { class: 'band ' + b[0], x: L, y: top.toFixed(1), width: pw, height: (bot - top).toFixed(1) }));
+      svg.append(svgEl('rect', { class: 'edge ' + b[0], x: L, y: top.toFixed(1), width: 3, height: (bot - top).toFixed(1) }));
+    });
+    [50, 60, 70].forEach(function (g) { svg.append(svgEl('line', { class: 'grid', x1: L, x2: W - R, y1: y(g).toFixed(1), y2: y(g).toFixed(1) })); });
+    svg.append(svgEl('line', { class: 'base', x1: L, x2: W - R, y1: T + ph, y2: T + ph }));
+    [lo, 50, 60, 70, hi].forEach(function (t) {
+      svg.append(svgEl('text', { class: 'axis', x: L - 5, y: (y(t) + 3.5).toFixed(1), 'text-anchor': 'end' }, String(t)));
+    });
+    [[0, '0', 'start'], [50, '5', 'middle'], [100, '10秒', 'end']].forEach(function (a) {
+      svg.append(svgEl('text', { class: 'axis', x: (L + pw * a[0] / 100).toFixed(1), y: H - 5, 'text-anchor': a[2] }, a[1]));
+    });
+    if (series.length) {
+      let d = '';
+      for (let i = 0; i < series.length; i++) d += (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(series[i]).toFixed(1);
+      svg.append(svgEl('path', { class: 'series', d: d }));
+    }
+    if (live && series.length) {
+      const j = series.length - 1;
+      svg.append(svgEl('circle', { class: 'nowdot', cx: x(j).toFixed(1), cy: y(series[j]).toFixed(1), r: 4 }));
+    }
+    if (!live && series.length && avg != null) {
+      const ya = y(avg);
+      svg.append(svgEl('line', { class: 'avg', x1: L, x2: W - R, y1: ya.toFixed(1), y2: ya.toFixed(1) }));
+      let im = 0;
+      for (let i = 1; i < series.length; i++) if (series[i] > series[im]) im = i;
+      const xm = x(im), ym = y(max);
+      const nearLeft = xm < L + pw * 0.4 && Math.abs(ym - ya) < 28;
+      svg.append(svgEl('text', { class: 'lbl', x: nearLeft ? W - R - 4 : L + 8, y: (ya - 5).toFixed(1), 'text-anchor': nearLeft ? 'end' : 'start' }, '平均 ' + Math.round(avg)));
+      svg.append(svgEl('circle', { class: 'maxdot', cx: xm.toFixed(1), cy: ym.toFixed(1), r: 4.5 }));
+      const above = ym - 10 > T + 2;
+      svg.append(svgEl('text', { class: 'lbl', x: clamp(xm, L + 26, W - R - 26).toFixed(1), y: (above ? ym - 10 : ym + 18).toFixed(1), 'text-anchor': 'middle' }, '最大 ' + Math.round(max)));
+      svg.append(svgEl('rect', { class: 'hit', x: L, y: T, width: pw, height: ph }));
+    }
+    chartState = { series: series, x: x, y: y, pw: pw, ph: ph, live: live };
+  }
+
+  function hideTip() {
+    $('tip').hidden = true;
+    const g = $('chart').querySelector('.guide-g');
+    if (g) g.remove();
+  }
+
+  (function bindChartHover() {
+    const svg = $('chart'), tip = $('tip');
+    function at(evt) {
+      const cs = chartState;
+      if (!cs || cs.live || !cs.series.length) return;
+      const r = svg.getBoundingClientRect();
+      if (!r.width) return;
+      const sx = (evt.clientX - r.left) * (CH.W / r.width);
+      if (sx < CH.L - 6 || sx > CH.L + cs.pw + 6) { hideTip(); return; }
+      const i = clamp(Math.round(((sx - CH.L) / cs.pw) * 100) - 1, 0, cs.series.length - 1);
+      const v = cs.series[i];
+      let g = svg.querySelector('.guide-g');
+      if (!g) {
+        g = svgEl('g', { class: 'guide-g' });
+        g.append(svgEl('line', { class: 'guide' }), svgEl('circle', { class: 'gdot', r: 4 }));
+        svg.append(g);
+      }
+      const gx = cs.x(i), gy = cs.y(v);
+      const ln = g.firstChild, dot = g.lastChild;
+      ln.setAttribute('x1', gx); ln.setAttribute('x2', gx);
+      ln.setAttribute('y1', CH.T); ln.setAttribute('y2', CH.T + cs.ph);
+      dot.setAttribute('cx', gx); dot.setAttribute('cy', gy);
+      tip.textContent = ((i + 1) / 10).toFixed(1) + '秒  ' + Math.round(v) + ' dB';
+      tip.style.left = clamp((gx / CH.W) * r.width, 44, r.width - 44) + 'px';
+      tip.hidden = false;
+    }
+    svg.addEventListener('pointermove', at);
+    svg.addEventListener('pointerdown', at);
+    svg.addEventListener('pointerleave', hideTip);
+    svg.addEventListener('pointercancel', hideTip);
+  })();
+
+  /* ---------- 校正 ---------- */
+  function updateCalPanel() {
+    $('calOffset').textContent = fmtSigned(state.userOffset) + ' dB';
+    const st = $('calStatus');
+    st.textContent = state.calibrated ? '校正済み' : '未校正';
+    st.className = 'status ' + (state.calibrated ? 'ok' : 'ng');
+    $('calToggle').dataset.cal = state.calibrated ? '1' : '0';
+    if (state.last) {
+      $('calLast').textContent = (state.last.leqFS + offset()).toFixed(1) + ' dB';
+      $('calApply').disabled = false;
+    } else {
+      $('calLast').textContent = 'まだ計測していません';
+      $('calApply').disabled = true;
+    }
+  }
+  function calMsg(text, isError) {
+    const el = $('calMsg');
+    el.textContent = text;
+    el.className = 'cal-msg ' + (isError ? 'err' : 'ok');
+    el.hidden = !text;
+  }
+  function toggleCal(force) {
+    const p = $('calPanel');
+    const open = force === undefined ? p.hidden : force;
+    p.hidden = !open;
+    $('calToggle').setAttribute('aria-expanded', String(open));
+    if (open) {
+      updateCalPanel();
+      if (p.scrollIntoView) p.scrollIntoView({ block: 'start', behavior: reducedMotion ? 'auto' : 'smooth' });
+    }
+  }
+  $('calToggle').addEventListener('click', function () { toggleCal(); });
+  $('calNoticeBtn').addEventListener('click', function () { toggleCal(true); });
+  $('calForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!state.last) return;
+    const raw = String($('calRef').value).replace(/[０-９．]/g, function (ch) { return String.fromCharCode(ch.charCodeAt(0) - 0xFEE0); }).replace(',', '.').trim();
+    const ref = parseFloat(raw);
+    if (!isFinite(ref) || ref < 20 || ref > 130) { calMsg('20〜130の数値を入力してください。', true); return; }
+    const cur = state.last.leqFS + offset();
+    state.userOffset = clamp(Math.round((state.userOffset + ref - cur) * 10) / 10, -60, 60);
+    state.calibrated = true;
+    saveSettings();
+    renderResult(false);
+    calMsg('補正値を ' + fmtSigned(state.userOffset) + ' dB にしました。直前の平均は ' + (state.last.leqFS + offset()).toFixed(1) + ' dB として表示します。', false);
+  });
+  function nudge(d) {
+    state.userOffset = clamp(Math.round((state.userOffset + d) * 10) / 10, -60, 60);
+    state.calibrated = true;
+    saveSettings();
+    renderResult(false);
+    calMsg('', false);
+  }
+  $('calMinus').addEventListener('click', function () { nudge(-0.5); });
+  $('calPlus').addEventListener('click', function () { nudge(0.5); });
+  $('calReset').addEventListener('click', function () {
+    state.userOffset = 0;
+    state.calibrated = false;
+    saveSettings();
+    renderResult(false);
+    calMsg('補正値を初期値に戻しました。', false);
+  });
+
+  /* ---------- 初期表示 ---------- */
+  loadSettings();
+  syncToggles();
+  setDial('idle');
+  renderResult(false);
+})();
+</script>
+</body>
+</html>
